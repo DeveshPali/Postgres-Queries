@@ -1,0 +1,51 @@
+with k as
+(select Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar as Numbers,Max(sid.transaction_date) as last_purchase_date ,
+case when sid.product_category = 'Spa Services' then 'Yes' else 'No' end as Spa_visit,
+sid.order_reference as orders
+from sales_invoice_data sid 
+left join res_company rc on rc.id = sid.company_id
+where coalesce(rc.parent_id,rc.id) in ('2','37','36','33','32') and sid.parent_channel in ('retail','franchise') and sid.customer_type = 'Customer Sales' and sid.shipping_address_name not ilike '%default%'
+-- and transaction_date >=  Current_date - interval '180 Days' --
+-- and Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar  = '9901496030'
+group by sid.bill_to_contact,sid.product_category,sid.order_reference
+having length(Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar ) = 10
+-- order by sid.transaction_date asc
+),
+Spa_orders as( 
+Select Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar as spanumber,count(distinct(order_reference)) as spa_orders
+from sales_invoice_data sid
+where sid.product_category = 'Spa Services'
+group by sid.bill_to_contact
+),
+abc as (select numbers, Max(case when rn = '1' then sales end) as lptsales , 
+max(case when rn = '2' then sales end) as spltsales,
+ max(case when rn = '1' then date end) as lptdate , 
+max(case when rn = '2' then date end) as spltdate
+from
+(select Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar as Numbers,Max(sid.transaction_date) as date ,
+sum(p_amount) as sales, row_number() over (partition by sid.bill_to_contact order by sid.transaction_date desc) as rn,
+Count(distinct(sid.order_reference)) as orders
+from sales_invoice_data sid 
+left join res_company rc on rc.id = sid.company_id
+where coalesce(rc.parent_id,rc.id) in ('2','37','36','33','32') and sid.parent_channel in ('retail','franchise') and sid.customer_type = 'Customer Sales' and sid.shipping_address_name not ilike '%default%'
+and Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar = '9901496030'
+group by sid.bill_to_contact,sid.transaction_date
+) K
+where k.rn in ('1','2') 
+group by numbers--,k.rn,k.sales,k.date
+)
+select K.numbers as "Call Number",Max(K.last_purchase_date) as last_purchased_date,
+abc.spltdate,
+CAST(EXTRACT(DAY FROM (CURRENT_DATE - MAX(K.last_purchase_date))) AS INT) AS days,
+CAST(EXTRACT(DAY FROM (MAX(K.last_purchase_date - abc.spltdate))) AS INT) AS daysbetweenlpt_splt,
+max(case when K.Spa_visit = 'Yes' then 'Yes' else 'No' end)  as Spa_visit,
+Count(distinct(k.orders)) orders,
+abc.lptsales as lPT_sales,
+abc.spltsales as Splt_sales,
+sp.spa_orders,
+case when sp.spa_orders = 1 then 'first_time_spa' when sp.spa_orders > 1 then 'Multi_time_spa' else 'No_Spa'  end as Spa_type
+from K
+left join spa_orders sp on sp.spanumber = k.numbers
+left join abc on abc.numbers = k.numbers
+where k.numbers = '9901496030'
+group by K.numbers,sp.spa_orders,abc.lptsales,abc.spltsales,abc.spltdate
