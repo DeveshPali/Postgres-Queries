@@ -1,0 +1,6 @@
+select 
+case when 
+hswt.transaction_date
+is null then hswt.create_date::date else hswt.transaction_date::date end as date,
+hswt.warehouse_id,case when hswt.transaction_type = 'credit' then 'Package' else 'Session' end as "transaction_type",
+hswt.customer_id,hswt.product_id,hswt.name as SPAorders,hswt.no_of_session,hswt.spa_status,debit_amount as Session_Charges,credit_amount as package_charges from huft_spa_wallet_transaction hswt
