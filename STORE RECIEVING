@@ -1,0 +1,33 @@
+---------------ICT AT STORE ________
+Select ICT.Name as "Po number",SP.date_done::date as recieved_date,ICTL.qty_delivered as "QTY_recieved",SW1.ID as WH_id,SW1.name as "Warehouse",
+PP.id as product_id,PP.default_code,PT.name ->> 'en_US' as Product_name from inter_company_transfer_ept ICT
+inner join inter_company_transfer_line_ept ICTL on ICTL.inter_transfer_id = ICT.ID
+inner join Stock_warehouse SW1 on SW1.id = ICT.destination_warehouse_id
+inner join(Select origin,date_done from Stock_picking where name ilike '%IN%') SP on Sp.origin = ICT.name
+ inner join product_product PP on PP.id = ICTL.product_id
+inner join product_template PT on PT.id = PP.product_tmpl_id
+where ICT.ict_status = 'stock_in'  and sw1.type = 'store'
+and ICTL.qty_delivered > 0
+group by SW1.name,PP.default_code,PT.name,SW1.name,SP.date_done::date,pp.id,Sw1.id,ICT.Name,ICTL.qty_delivered
+
+
+
+------------------------PO AT STORE --------------
+Select PO.name as "Po number",Po.effective_date::date as recieved_date,
+POL.qty_received as "QTY_recieved",Sw.ID as Wh_id,SW.name as "Warehouse",PP.id as product_id,PP.default_code,PT.name ->> 'en_US' as Product_name
+from Purchase_order PO
+inner join purchase_order_line POL on POL.order_id = PO.id 
+inner Join Stock_picking Sp on SP.origin = Po.name
+inner join stock_picking_type spt  on spt.id = po.picking_type_id 
+Inner join stock_warehouse SW on spt.warehouse_id = SW.id
+inner join product_Product PP on PP.id =  POl.product_id
+inner join Product_template PT on PP.product_tmpl_id = PT.id
+inner join res_company rc on rc.id = po.company_id
+where  coalesce(rc.parent_id,rc.id) in  ( '2')  and Sw.type = 'store' and Po.purchase_status in ('partially_received','closed')
+and POL.qty_received > 0
+group by PO.name,SW.name ,POL.qty_received,
+PP.default_code,PT.name,Po.effective_date::date,Sw.id,PP.id
+
+
+
+
