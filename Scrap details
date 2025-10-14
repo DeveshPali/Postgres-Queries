@@ -1,0 +1,15 @@
+select
+    sw.name as warehouse_name,
+    sl.name,
+    PP.default_code AS Main_Sku,
+    PT.name ->> 'en_US' AS Product_name,
+    (SUM(sq.quantity) - SUM(sq.reserved_quantity)) AS quantity
+    from stock_quant sq
+    left join product_product pp on pp.id = sq.product_id 
+    left join product_template pt on pt.id = pp.product_tmpl_id 
+    left join stock_warehouse sw on sw.id = sq.warehouse_id 
+    left join stock_location sl on sl.id = sq.location_id 
+    left join stock_location sl2 on sl2.id = sl.location_id
+    where sl2.name ilike '%scrap%'
+    group by sl.name,pp.default_code,pt.name,sw.name
+    limit 100
