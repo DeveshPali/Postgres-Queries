@@ -1,0 +1,84 @@
+WITH ABC AS (
+    select
+      case 
+            when sid.city = 'Chandigarh' then 'Chandigarh'
+            when sid.city = 'Amritsar' then 'Chandigarh'
+            when sid.city = 'Panchkula' then 'Chandigarh'
+            when sid.state = 'Punjab' then 'Chandigarh'
+            when sid.state = 'Uttar Pradesh' then 'Delhi NCR'
+            when sid.state = 'Delhi' then 'Delhi NCR'
+            when sid.state = 'Haryana' then 'Delhi NCR'
+            when sid.state = 'Gujarat' then 'Gujarat'
+            when sid.city = 'Hyderabad' then 'Karnataka'
+            when sid.state = 'Karnataka' then 'Karnataka'
+            when sid.state = 'Tamil Nadu' then 'Tamil Nadu'
+            when sid.state = 'West Bengal' then 'West Bengal'
+            when sid.city = 'Pune' then 'Pune'
+            when sid.city = 'Mumbai' then 'Mumbai'
+            when sid.state = 'Maharashtra' then 'Maharashtra'
+            when sid.city = 'Jaipur' then 'Jaipur'
+        end as region,
+        sid.state AS Bill_From_State,
+        sid.city AS Bill_From_City,
+        sid.channel AS Channel,
+        MAX(sid.transaction_date) AS Last_transaction_Date,
+        Sum(sid.p_amount) as T_sales,
+        sid.customer_id,
+        sid.Bill_To_Contact,
+        CASE 
+            WHEN LENGTH(sid.Bill_To_Contact) = 10 THEN 1
+            ELSE 0 
+        END AS correct_num
+    FROM
+        sales_invoice_data sid
+    WHERE
+        sid.parent_channel = 'retail'
+        AND sid.order_reference IS NOT NULL
+        AND sid.item_status = 'Completed'
+        and sid.transaction_date >= '2025-07-01' and sid.transaction_date <= '2025-10-26'
+  and sid.shipping_address_name not ilike '%Default%'
+    GROUP BY
+        sid.state,
+        sid.city,
+        sid.channel,
+        sid.customer_id,
+        sid.Bill_To_Contact
+),
+Pet AS (
+    SELECT
+        CPI.partner_id AS Phone_No,
+        CPI.name AS Pet_Name,
+        CPI.birthday AS Birthday, 
+        count(cpi.birthday) as birthday_count,
+        pb.name as breed
+    FROM
+        res_partner_pet CPI
+        left join pet_breed pb on pb.id = cpi.breed 
+    WHERE
+        EXTRACT(MONTH FROM CPI.birthday) in (TO_CHAR(CURRENT_DATE, 'MM')::INTEGER + 1)  -- Filter for pets born in September
+	group by CPI.PARTNER_ID, CPI.NAME, CPI.BIRTHDAY,pb.name        
+)
+SELECT 
+    ABC.Region,
+    ABC.Bill_From_State AS State,
+    ABC.Bill_From_City AS City,
+    ABC.Channel,
+    ABC.Bill_To_Contact AS Bill_To_Contact,
+    Count(ABC.Bill_To_Contact) over (partition by ABC.Bill_To_Contact) as Number_Count,
+    rp.name AS Customer_Name,
+    pet.breed,
+    Pet.Pet_Name,
+    Pet.Birthday,
+    ABC.t_sales,
+    ABC.last_transaction_date::date
+FROM
+    ABC
+LEFT JOIN Pet ON Pet.Phone_No = ABC.customer_id
+LEFT JOIN res_partner rp ON rp.id = ABC.customer_id
+WHERE
+    ABC.correct_num = 1  -- Ensure the phone number is correct
+    and Pet.Birthday_Count > 0
+    and abc.bill_to_contact = '9654437018'
+group by ABC.BILL_FROM_STATE, ABC.BILL_FROM_CITY, ABC.CHANNEL, PET.PET_NAME, PET.BIRTHDAY, ABC.BILL_TO_CONTACT, RP.NAME ,ABC.Region,
+ABC.last_transaction_date,abc.t_sales,pet.breed 
+order by ABC.bill_to_contact 
