@@ -1,0 +1,34 @@
+
+with CTE as (
+select * from
+(select sid.state as "State",Channel as "Store_Name",sid.customer_id ,Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar as "Customer_Number"
+,SID.final_amount  as Total_bill_value
+,dense_rank() over (partition by sid.channel  order by sid.final_amount  desc) as RN 
+,sid.shipping_address_name as "Customer_Name"
+,sid.product_name as "Product_Name"
+,Sid.product_category as "Category"
+,Sid.product_sub_category as "Sub_Category"
+,Sid.p_amount as Sales
+from sales_invoice_data sid
+where sid.transaction_date >= (CURRENT_DATE - '1 days'::interval)
+and sid.customer_type = 'Customer Sales'
+and sid.parent_channel = 'retail'
+and sid.product_category in ('Food','Spa Services','Treats')
+and sid.shipping_address_name not ilike '%Default%'
+and Length(Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)) = 10
+)K
+where rn <= 10
+),
+Pet AS (
+    SELECT
+        CPI.partner_id ,
+         String_AGG(distinct PB.Pet_type,',') as "Pet_Type",
+        String_AGG(distinct CPI.name,',') as "Pet_Name",
+        String_AGG(distinct pb.name,',') as "Breed"
+    FROM
+        res_partner_pet CPI
+        left join pet_breed pb on pb.id = cpi.breed
+  group by CPI.partner_id
+ )
+ select CTE."State",CTE."Store_Name",CTE."Customer_Number",CTE."Product_Name",CTE."Category",CTE."Sub_Category",p."Pet_Type",p."Pet_Name",P."Breed" from CTE
+ left join pet p on p.partner_id = CTE.customer_id
