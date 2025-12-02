@@ -1,0 +1,19 @@
+with CTE as (
+select sid.shipping_partner_id,sid.transaction_date,TO_CHAR(sid.transaction_date, 'YYYY-MM') as month_yr,
+Sum(p_amount) as sales,
+sid.order_reference,
+dense_rank() over (partition by sid.shipping_partner_id order by TO_CHAR(sid.transaction_date, 'YYYY-MM') asc ) as rn
+from sales_invoice_data sid
+where parent_channel = 'e_commerce'
+and sid.customer_type  = 'Customer Sales'
+and sid.transaction_date >=  '2024-11-01' and sid.transaction_date <=  '2025-10-31'
+--and sid.shipping_partner_id = '2585'
+group by sid.transaction_date,sid.shipping_partner_id,sid.order_reference
+),
+ABC as (
+select shipping_partner_id,round(Sum(sales)) as Sales,Count(distinct(order_reference)) as Orders, MAx(RN) as RN from CTE
+group by shipping_partner_id
+)
+select RN,Count(distinct(shipping_partner_id)) as Customers,Sum(sales) as Sales,Sum(Orders) as Orders from ABC
+group by RN
+order by RN asc
