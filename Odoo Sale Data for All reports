@@ -1,0 +1,185 @@
+select 
+k."Invoice Number",
+k."Order Number"
+,k."Invoice Status" 
+,k."Customer Type"
+,k."Parent Channel" 
+,Case when K."Channel" = 'Noidasec 50' then 'Noidasec 50 - New' 
+      when K."Channel" = 'Noidasec 50 Spa' then 'Noidasec 50 Spa - New'
+else  k."Channel" 
+end as "Channel" 
+,k."Bill From City" 
+,k."Bill From State" 
+,k."Bill From Pincode" 
+,k."Customer's Name"
+,k."Bill To City" 
+,k."Bill To State" 
+,k."Bill To Pincode" 
+,k."Identified Customers" 
+,k."Sales" 
+,case when k."Category" = 'Service Charges' and k."Sub Category" != 'Customization' then 0 else  k."MRP Sales" end as  "MRP Sales"
+,k."Check" 
+,k."Date" 
+,k."Month" 
+,k."Qty"
+,k."New Qty" 
+,k."SKU" 
+,k."Product Name"
+,k."Main SKU"
+,k."Main Product Name" 
+, case when k."Main Product Name"  ilike '%Yum Num%' then  'Yum Nums'  
+       when k."Main Product Name"  ilike '%Sara%' then  'Sara''s'
+       when k."Main Product Name"  ilike '%Yakies%' then  'Yakies'
+       when k."Main Product Name"  ilike '%Yimt%' then  'Yimt'
+       when k."Main Product Name"  ilike '%Disney%' then  'Disney'
+       when k."Main Product Name"  ilike '%Marvel%' then  'Marvel'
+       when k."Main Product Name"  ilike '%Happi skippi%' then  'Happi Doggy'
+       when k."Main Product Name"  ilike '%HUFT Feed A Dog In Need%' then  'FADIN'
+       when k."Brand (P)"  = 'HUFT Foundation' then 'HUFT Foundation'
+       else
+k."Brand" end as "Brand"  
+,case when k."Brand (P)" ilike '%HUFT%' then 'HUFT' else k."Brand (P)" end as "Brand (P)"
+,k."Category" 
+,k."Sub Category" 
+,case when k."Customer Type" ilike 'Spa Wallet' then 'Spa Wallet' else k."Team" end as "Team"
+,k."Pack Size"
+,case when k."Category" = 'Service Charges' and k."Sub Category" != 'Customization' then 0 else  k."MRP" end as "MRP"
+,k."Tax %" 
+,k."Company Name" 
+From
+(Select 
+SID.invoice_number  as "Invoice Number",
+SID.order_reference as "Order Number",
+so.order_type,
+case when SID.item_status ilike '%Returned%' then 'Return'
+when SID.item_status ilike '%Completed%' then 'Complete' else SID.item_status end as "Invoice Status",
+SID.Customer_Type as "Customer Type",
+case When SID.shipping_address_name Ilike '%Pawfect%' then 'Franchisee'  
+When SID.shipping_address_name Ilike '%Bonus and Company%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%M/s Pets N Vets%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%J.N.M Enterprise%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Arthemio Hospitality%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Kaushal Kumar Agarwal%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Seekersandco%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Pet Crew%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Bark and beauty%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Shrisay enterprise%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Dunzo%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Swiggy%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Myntra%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Nykaa%' then 'Marketplace'
+When SID.parent_channel ilike '%b2b%' then 'B2B'
+When SID.parent_channel ilike '%Marketplace%' then 'Marketplace'
+When SID.parent_channel ilike '%e_commerce%' then 'E-Commerce'
+When SID.parent_channel ilike '%event_sales%' then 'Event Sales'
+When SID.parent_channel ilike '%retail%' then 'Retail'
+else SID.parent_channel End as "Parent Channel",
+case When SID.shipping_address_name Ilike '%Pawfect%' then 'Pawfect Care'  
+When SID.shipping_address_name Ilike '%Bonus and Company%' then 'Bonus and Company'
+When SID.shipping_address_name Ilike '%M/s Pets N Vets%' then 'Pets n Vets'
+When SID.shipping_address_name Ilike '%J.N.M%Enterprise%' then 'J.N.M.Enterprise'
+When SID.shipping_address_name Ilike '%Arthemio Hospitality%' then 'Arthemio Hospitality Private Limited'
+When SID.shipping_address_name Ilike '%Kaushal Kumar Agarwal%' then 'Kaushal Kumar Agarwal'
+When SID.shipping_address_name Ilike '%Seekersandco%' then 'Seekersandco'
+When SID.shipping_address_name Ilike '%Pet Crew%' then 'Pet Crew'
+When SID.shipping_address_name Ilike '%Bark and beauty%' then 'Bark And Beauty Pets Private Limited'
+When SID.shipping_address_name Ilike '%Shrisay enterprise%' then 'Shrisay Enterprises-Patna(S.K Puri)'
+When SID.shipping_address_name Ilike '%FLIPKART INDIA PRIVATE LIMITED%' then 'Flipkart Minutes'
+When SID.shipping_address_name Ilike '%Flipkart India Private Limited_Haringhata BTS%' then 'Flipkart Alpha'
+when SID.company ilike '%Barkyard%' and SID.shipping_address_name Ilike '%Amazon%' then 'Amazon Now'
+when SID.company ilike '%Barkyard%' and SID.shipping_address_name Ilike '%Etrade%' then 'Amazon Now'
+When SID.shipping_address_name Ilike '%Dunzo%' then 'Dunzo'
+When SID.shipping_address_name Ilike '%Swiggy%' then 'Swiggy'
+when SID.Product_category Ilike '%Spa Service%' then Trim(concat(replace(SID.channel,' Retail',''),' ','Spa')) /* SPA IDENTIFICATION */
+when SID.Product_category Ilike '%Pharmacy%' then 'Pharma - Koramangala'
+when so.is_mobile_order = 'True' then 'Huft App'
+when hsc.id = rp.huft_sales_channel_id  and rpc."name" ->> 'en_US'= 'DISTRIBUTOR_B2B' then 'B2B Distributor'
+when hsc.id = rp.huft_sales_channel_id  and rpc."name" ->> 'en_US' = 'Retail_B2B' then 'B2B Retail'
+when hsc.id = rp.huft_sales_channel_id   then hsc.channel 
+else SID.channel END as "Channel",
+SID.city as "Bill From City",SID.state as "Bill From State",SID.pincode as "Bill From Pincode",
+SID.shipping_address_name as "Customer's Name",
+case when SID.parent_channel in ('retail','Event Sales') then SID.city when SID.parent_channel = 'e_commerce' then SID.ship_to_city  else SID.bill_to_city end as "Bill To City",
+case when SID.parent_channel  in ('retail','Event Sales') then SID.state when SID.parent_channel = 'e_commerce' then SID.ship_to_state else SID.bill_to_state end as "Bill To State",
+case when SID.parent_channel  in ('retail','Event Sales') then SID.pincode when SID.parent_channel = 'e_commerce' then SID.ship_to_pincode else SID.ship_to_pincode end as "Bill To Pincode",
+case When SID.shipping_address_name Ilike '%Default%' then 'NA'
+when SID.parent_channel = 'e_commerce' then Right((regexp_replace(rp2.phone, '[^\d]+', '', 'g')),10)::varchar
+when Right((regexp_replace(rp2.phone, '[^\d]+', '', 'g')),10)::varchar is null then Right((regexp_replace(rp2.mobile, '[^\d]+', '', 'g')),10)::varchar
+when length(Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar) != 10 then 'NA'
+else Right((regexp_replace(bill_to_contact, '[^\d]+', '', 'g')),10)::varchar
+end  as "Identified Customers",
+CASE 
+  WHEN kv.parent = sid.sku_code and kv.total_count > 1 THEN 
+    ((sid.quantity * kv.product_qty * kv.price) /(sum(sid.quantity * kv.product_qty * kv.price) over (partition by SID.id)))*(sid.p_amount)
+  ELSE
+    sid.p_amount
+END AS "Sales",
+CASE  
+    WHEN kv.parent = SID.sku_code THEN
+        (SID.quantity * KV.product_qty * KV.price) 
+    ELSE
+        (SID.quantity * SID.product_selling_price)
+END AS "MRP Sales",
+'' as "Check", 
+SID.transaction_date::date as "Date",
+to_char(SID.transaction_date::date,'Mon-YY') as "Month",
+SID.quantity as "Qty", 
+case when kv.parent = SID.sku_code then SID.quantity*KV.product_qty else SID.quantity end as "New Qty",
+sid.sku_code as "SKU"
+, sid.product_name as "Product Name",
+case when kv.parent = SID.sku_code then KV.child else SID.sku_code end as "Main SKU",
+case when kv.parent = SID.sku_code then cm.product_name else  SID.product_name end as "Main Product Name",
+case when kv.parent = SID.sku_code then cm.Brand else SID.Brand end as "Brand",
+case when kv.parent = SID.sku_code then cm.Brand_P else SID.Brand_p end as "Brand (P)",
+case when kv.parent = SID.sku_code then cm.category else SID.product_category end as "Category",
+case when kv.parent = SID.sku_code then cm.Sub_category else  SID.product_sub_category end as "Sub Category",
+case when kv.parent = SID.sku_code then cm.Team 
+    when hswt.pos_order_id = po.id then 'Spa Redemption'
+     when sid.product_category = 'Spa Services' then 'Spa Services'
+else SID.team end as "Team",
+case when kv.product_qty is null then 1 else kv.product_qty end  as "Pack Size",
+case when kv.parent = SID.sku_code then cm.Mrp else SID.product_selling_price end as "MRP",
+regexp_replace(sid.tax_type,'[^\d]+', '', 'g')::varchar as "Tax %",
+case when SID.company ilike '%Earth Paws%' then 'EPPL'
+     when SID.company ilike '%Barkyard%'   then 'Barkyard'  
+     when Sid.company ilike '%Precious pet%' then 'PPS'
+     end as "Company Name" 
+from sales_invoice_data as SID
+left join res_company rc on rc.id = SID.company_id
+ left join(Select * from  sale_order where invoice_status = 'invoiced') so on So.name = sid.origin_number 
+  left join (select rp.id,coalesce(rp2.huft_sales_channel_id,rp.huft_sales_channel_id) as huft_sales_channel_id  from res_partner rp
+left join res_partner rp2 on rp2.id = coalesce(rp.parent_id,rp.id)
+) rp on rp.id = sid.customer_id
+left join res_partner rp2 on rp2.id = sid.shipping_partner_id
+left join amazon_warehouse_mapping awm on awm.warehouse_id = sid.warehouse_id
+left join 
+(select hsc1.id,hsc.name as parent_channel,hsc1.name as channel from huft_sales_channel hsc
+inner join huft_sales_channel hsc1 on Coalesce(hsc1.parent_huft_sales_channel,hsc1.id) = hsc.id
+and hsc.active = True)
+ hsc on hsc.id = rp.huft_sales_channel_id
+left join (select partner_id,category_id from res_partner_res_partner_category_rel  where category_id in ('531','533')) rprpcr on rprpcr.partner_id = rp.id 
+left join  res_partner_category rpc on rpc.id = rprpcr.category_id
+left join pos_order po on po.account_move = sid.invoice_id 
+left join (select distinct hswt.pos_order_id,pp.default_code from huft_spa_wallet_transaction hswt
+             left join product_product pp on pp.id = hswt.product_id)
+hswt on hswt.pos_order_id = po.id and sid.sku_code = hswt.default_code
+left join(SELECT 
+        parent,
+        child,
+        product_qty,
+        price,
+        SUM(price) OVER (PARTITION BY parent) AS total_price,
+        count(child) OVER (PARTITION BY parent) AS total_count
+    FROM 
+        kitvalues) as KV on  KV.parent= SID.sku_code
+left join catalog_master cm on cm.sku = case when sid.sku_code = kv.parent then kv.child else sid.sku_code end 
+where coalesce(RC.parent_id,RC.id) in ('1','2')
+and
+SID.P_amount is not null
+and sid.sku_code is not null
+and SID.parent_channel is not null
+--and sid.channel != 'Amazon' and SID.shipping_address_name not ilike '%Amazon%' 
+and AWM.warehouse_id is null
+-- and  sid.transaction_date between '2025-11-01' and '2025-11-30'
+and sid.invoice_number = 'THRWH/2026/60157'
+)k
