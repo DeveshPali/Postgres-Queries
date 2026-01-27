@@ -1,0 +1,275 @@
+WITH AKM_CTE AS (
+    SELECT
+        sml.product_id AS product_id,
+        sw.id AS wh_id,
+        sw.company_id AS company
+    FROM
+        stock_move_line sml
+    INNER JOIN
+        stock_location sl ON sl.id = sml.location_dest_id
+    INNER JOIN
+        stock_warehouse sw ON sw.id = sl.warehouse_id
+    INNER JOIN
+        res_company rc ON rc.id = sw.company_id
+    WHERE
+        COALESCE(rc.parent_id, rc.id) IN ('1', '2') 
+    GROUP BY
+        sml.product_id, sw.id, sw.company_id
+),
+PO_CTE AS (
+    SELECT
+        PP.id AS product_id,
+        sw.id AS wh_id,
+        SUM(POL.product_qty) AS Incoming_Qty
+    FROM
+        purchase_order PO
+    INNER JOIN
+        purchase_order_line POL ON POL.order_id = PO.id
+    INNER JOIN
+        product_product PP ON PP.id = POL.product_id
+    INNER JOIN
+        res_company rc ON rc.id = po.company_id
+    INNER JOIN
+        stock_picking_type spt ON spt.id = po.picking_type_id
+    INNER JOIN
+        stock_warehouse SW ON spt.warehouse_id = SW.id
+    LEFT JOIN
+        res_partner rs ON rs.id = PO.partner_id
+    WHERE
+        COALESCE(rc.parent_id, rc.id) IN ('1', '2')
+        AND PO.purchase_status = 'sent'
+        AND rs.is_actual_vendor = 'True'
+    GROUP BY
+        PP.id, sw.id
+),
+SQ1_CTE AS (
+    SELECT
+        SQ.product_id AS product_id,
+        sw.type AS channel,
+        SQ.warehouse_id AS wh_id,
+        (SUM(SQ.quantity) - SUM(SQ.reserved_quantity)) AS Available_Qty,
+        SUM(SQ.quantity) AS qty,
+        SUM(SQ.reserved_quantity) AS Reserved_qty
+    FROM
+        Stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    INNER JOIN
+        stock_warehouse sw ON sw.id = SQ.warehouse_id
+    WHERE
+        SQ.quantity > 0
+        AND SL.parent_path LIKE CONCAT('%', SW.lot_stock_id, '%') and sl.name != 'Primary Packaging IN'
+    GROUP BY
+        SQ.warehouse_id, SQ.product_id, sw.type    
+),
+PackageIn as (
+select sq.product_id,sq.warehouse_id as wh_id,(sum(sq.quantity)- sum(sq.reserved_quantity)) as PackInqty from stock_quant sq 
+left join res_company rc on rc.id = sq.company_id 
+left join stock_location sl on sl.id = sq.location_id 
+where coalesce(rc.parent_id,rc.id) in ('1','2') and sl.usage = 'internal'
+and sl.name = 'Primary Packaging IN'
+group by sq.product_id,sq.warehouse_id
+),
+InTransit_CTE AS (
+    SELECT
+        sw.id AS wh_id,
+        sm.product_id,
+        SUM(sm.product_uom_qty) AS in_transit
+    FROM
+        stock_move sm
+left join stock_location sl1 on sl1.id = sm.location_id 
+inner join stock_location sl on sl.id = sm.location_dest_id
+inner join stock_warehouse sw on sw.id = sl.warehouse_id
+inner join res_company rc on rc.id = sm.company_id 
+inner join product_product pp on pp.id = sm.product_id
+inner join product_template pt on pt.id = pp.product_tmpl_id
+left join stock_picking sp on sp.id = sm.picking_id
+left join res_partner rp on rp.id = sp.partner_id
+where (sl1.name ilike '%transit%' or sl1.name ilike '%vendor%')  and sm.state = 'assigned' and
+coalesce(rc.parent_id,rc.id) in ('1','2') 
+ and (rp.name ilike '%brk%' or rp.name ilike '%eppl%' or rp.name ilike '%Earth Paw%' or rp.name ilike '%Barkyard%' 
+or rp.name ilike '%HUFT%')  AND sm.date >= (CURRENT_DATE - INTERVAL '30' DAY)
+    GROUP BY
+        sw.id,sm.product_id
+),
+Dropship_CTE AS (
+    SELECT
+        SQ.product_id AS product_id,
+        SQ.warehouse_id AS wh_id,
+        SUM(SQ.Quantity) AS dropship
+    FROM
+        stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    WHERE
+        SL.name iLIKE '%dropship%'
+        AND SL.warehouse_id IS NOT NULL
+    GROUP BY
+        SQ.product_id, SQ.warehouse_id
+),
+Personalized_CTE AS (
+    SELECT
+        SQ.product_id AS product_id,
+        SQ.warehouse_id AS wh_id,
+        SUM(SQ.Quantity) AS personalized
+    FROM
+        stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    WHERE
+        SL.name ILIKE '%personal%'
+    GROUP BY
+        SQ.product_id, SQ.warehouse_id
+),
+Scrap_Qty_CTE AS (
+    SELECT
+        SS.product_id AS product_id,
+        SL.warehouse_id AS wh_id,
+        SUM(SS.scrap_qty) AS scrap_qty
+    FROM
+        stock_scrap SS
+    INNER JOIN
+        stock_location sl ON SS.location_id = SL.id
+    WHERE
+        SS.state IN ('partiallyreturned', 'done')
+    GROUP BY
+        SS.product_id, SL.warehouse_id
+),
+RTV_CTE AS (
+    SELECT
+        SM.product_id AS product_id,
+        SM.warehouse_id AS Wh_id,
+        SUM(SM.product_uom_qty) AS INV
+    FROM
+        stock_move SM
+    INNER JOIN
+        Stock_warehouse sw ON sw.id = sm.warehouse_id
+    INNER JOIN
+        Stock_location sl ON sl.id = sm.location_id
+    WHERE
+        SM.state = 'done' AND sl.name LIKE '%RTV%'
+    GROUP BY
+        SM.product_id, SM.warehouse_id
+),
+Putaway_In_CTE AS (
+    SELECT
+        SM.product_id AS Product_id,
+        SM.warehouse_id AS Wh_id,
+        SUM(SM.quantity) AS Put_away_in
+    FROM
+        stock_move SM
+    INNER JOIN
+        Stock_location Sl ON SL.id = SM.location_id
+    INNER JOIN
+        Stock_location SL1 ON SL1.id = SM.location_dest_id
+    WHERE
+        SL.name LIKE '%Input%'
+        AND SL1.name LIKE '%Stock%'
+        AND SM.state in ('assigned','partially_available') 
+    GROUP BY
+        SM.product_id, SM.warehouse_id
+),
+Export_CTE AS (
+    SELECT
+        SQ.product_id AS Product_id,
+        SQ.warehouse_id AS wh_id,
+        SUM(SQ.Quantity) AS Export
+    FROM
+        stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    WHERE
+        SL.name = 'Export'
+    GROUP BY
+        SQ.product_id, SQ.warehouse_id
+),
+Blinkit_CTE AS (
+    SELECT
+        SQ.product_id AS Product_id,
+        SQ.warehouse_id AS wh_id,
+        SUM(SQ.Quantity) AS blinkit
+    FROM
+        stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    WHERE
+        SL.name LIKE '%marketplace%'
+    GROUP BY
+        SQ.product_id, SQ.warehouse_id
+),
+MainQuery AS (
+    SELECT
+        CURRENT_DATE AS  date,
+        CASE
+            WHEN sw.name LIKE '%Amazon%' THEN 'Amazon'
+            WHEN sw.name LIKE '%FBA%' THEN 'Amazon'
+            WHEN sw.name LIKE '%WH-%' THEN 'Warehouse'
+            WHEN sw.name LIKE '%WH -%' THEN 'Warehouse'
+            ELSE 'Store'
+        END AS channel_type,
+        akm.wh_id,
+        rc.name AS company_name,
+        sw.name AS warehouse_name,
+        PP.id,
+        PP.default_code AS Main_Sku,
+        PT.name ->> 'en_US' AS Product_name,
+        PT.sku_type AS Sku_type,
+        PT.list_price AS MRP,
+        SUM(COALESCE(SQ1_CTE.Available_Qty, 0) + COALESCE(SQ1_CTE.Reserved_qty, 0)
+            + COALESCE(RTV_CTE.INV, 0) + COALESCE(Dropship_CTE.dropship, 0)
+            + COALESCE(Scrap_Qty_CTE.scrap_qty, 0) + COALESCE(Export_CTE.Export, 0))
+            AS Physical_in_hand_Audit,
+        	sum(coalesce(SQ1_CTE.available_qty,0)) as Available_QTY,
+		sum(coalesce(SQ1_CTE.Reserved_qty,0)) as Reserved_qty,
+		Sum(coalesce(PO_CTE.Incoming_Qty,0)) as Incoming_qty ,    
+        SUM(COALESCE(SQ1_CTE.qty, 0)) AS qty,
+        SUM(COALESCE(InTransit_CTE.in_transit, 0)) AS in_transit,
+        SUM(COALESCE(Dropship_CTE.dropship, 0)) AS dropship,
+        SUM(COALESCE(Personalized_CTE.personalized, 0)) AS personalized,
+        SUM(COALESCE(Scrap_Qty_CTE.scrap_qty, 0)) AS scrap_qty,
+        SUM(COALESCE(RTV_CTE.INV, 0)) AS rtv,
+        SUM(COALESCE(Putaway_In_CTE.put_away_in, 0)) AS put_away_in,
+        SUM(COALESCE(Export_CTE.Export, 0)) AS export,
+        SUM(COALESCE(Blinkit_CTE.blinkit, 0)) AS blinkit,
+        Sum(Coalesce(PackageIn.PackInqty,0)) as PackageIn,
+        SUM(COALESCE(SQ1_CTE.Available_Qty, 0) + COALESCE(SQ1_CTE.Reserved_qty, 0)
+            + COALESCE(RTV_CTE.INV, 0) + COALESCE(Dropship_CTE.dropship, 0)
+            + COALESCE(Putaway_In_CTE.put_away_in, 0) + COALESCE(Scrap_Qty_CTE.scrap_qty, 0)
+            + COALESCE(PO_CTE.Incoming_Qty, 0) + COALESCE(InTransit_CTE.in_transit, 0)
+            + COALESCE(Personalized_CTE.personalized, 0)+ coalesce(PackageIn.PackInqty,0)) AS total_inventory,
+            
+        SUM(COALESCE(SQ1_CTE.Available_Qty, 0) + COALESCE(Putaway_In_CTE.put_away_in, 0)
+            + COALESCE(PO_CTE.Incoming_Qty, 0) + COALESCE(InTransit_CTE.in_transit, 0)
+            + COALESCE(Personalized_CTE.personalized, 0)) AS available_for_sale_inventory,
+            
+        SUM(COALESCE(RTV_CTE.INV, 0) + COALESCE(Scrap_Qty_CTE.scrap_qty, 0)
+            + COALESCE(SQ1_CTE.Reserved_qty, 0) + COALESCE(Dropship_CTE.dropship, 0)
+            + COALESCE(Export_CTE.Export, 0) + COALESCE(Blinkit_CTE.blinkit, 0)+coalesce(PackageIn.PackInqty,0))
+            AS not_available_for_sale_inventory
+    FROM AKM_CTE AKM
+    INNER JOIN stock_warehouse SW ON SW.id = AKM.wh_id
+    INNER JOIN product_product PP ON PP.id = AKM.product_id
+    INNER JOIN product_template PT ON PT.id = PP.product_tmpl_id
+    LEFT JOIN res_company rc ON RC.id = AKM.company
+    LEFT JOIN PO_CTE ON PO_CTE.product_id = AKM.product_id AND PO_CTE.wh_id = AKM.wh_id
+    LEFT JOIN SQ1_CTE ON SQ1_CTE.product_id = AKM.product_id AND SQ1_CTE.wh_id = AKM.wh_id
+    LEFT JOIN InTransit_CTE ON InTransit_CTE.product_id = AKM.product_id AND InTransit_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Dropship_CTE ON Dropship_CTE.product_id = AKM.product_id AND Dropship_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Personalized_CTE ON Personalized_CTE.product_id = AKM.product_id AND Personalized_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Scrap_Qty_CTE ON Scrap_Qty_CTE.product_id = AKM.product_id AND Scrap_Qty_CTE.wh_id = AKM.wh_id
+    LEFT JOIN RTV_CTE ON RTV_CTE.product_id = AKM.product_id AND RTV_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Putaway_In_CTE ON Putaway_In_CTE.product_id = AKM.product_id AND Putaway_In_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Export_CTE ON Export_CTE.product_id = AKM.product_id AND Export_CTE.wh_id = AKM.wh_id
+    LEFT JOIN Blinkit_CTE ON Blinkit_CTE.product_id = AKM.product_id AND Blinkit_CTE.wh_id = AKM.wh_id
+    left JOIN PackageIn on PackageIn.product_id = AKM.product_id AND PackageIn.wh_id = AKM.wh_id
+    GROUP BY
+        PP.id, akm.wh_id, PP.default_code, PT.name, SW.name, PT.sku_type, PT.list_price, rc.name
+    HAVING
+        SUM(COALESCE(SQ1_CTE.Available_qty, 0) + COALESCE(SQ1_CTE.Reserved_qty, 0)
+            + COALESCE(RTV_CTE.INV, 0) + COALESCE(Dropship_CTE.dropship, 0)
+            + COALESCE(Putaway_In_CTE.put_away_in, 0) + COALESCE(Scrap_Qty_CTE.scrap_qty, 0)
+            + COALESCE(PO_CTE.Incoming_Qty, 0) + COALESCE(InTransit_CTE.in_transit, 0)
+            + COALESCE(Personalized_CTE.personalized, 0)+coalesce(PackageIn.PackInqty,0)) != 0
+)
+SELECT * FROM MainQuery 
+;
