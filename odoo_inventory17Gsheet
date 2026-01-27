@@ -1,0 +1,168 @@
+WITH AKM_CTE AS (
+    SELECT
+        sml.product_id AS product_id,
+        sw.id AS wh_id,
+        sw.company_id AS company
+    FROM
+        stock_move_line sml
+    INNER JOIN
+        stock_location sl ON sl.id = sml.location_dest_id
+    INNER JOIN
+        stock_warehouse sw ON sw.id = sl.warehouse_id
+    INNER JOIN
+        res_company rc ON rc.id = sw.company_id
+    WHERE
+        COALESCE(rc.parent_id, rc.id) IN ('1', '2')
+    GROUP BY
+        sml.product_id, sw.id, sw.company_id
+),
+PO_CTE AS (
+    SELECT
+        PP.id AS product_id,
+        sw.id AS wh_id,
+        SUM(POL.product_qty) AS Incoming_Qty
+    FROM
+        purchase_order PO
+    INNER JOIN
+        purchase_order_line POL ON POL.order_id = PO.id
+    INNER JOIN
+        product_product PP ON PP.id = POL.product_id
+    INNER JOIN
+        res_company rc ON rc.id = po.company_id
+    INNER JOIN
+        stock_picking_type spt ON spt.id = po.picking_type_id
+    INNER JOIN
+        stock_warehouse SW ON spt.warehouse_id = SW.id
+    LEFT JOIN
+        res_partner rs ON rs.id = PO.partner_id
+    WHERE
+        COALESCE(rc.parent_id, rc.id) IN ('1', '2')
+        AND PO.purchase_status = 'sent'
+        AND rs.is_actual_vendor = 'True'
+    GROUP BY
+        PP.id, sw.id
+),
+Putaway_In_CTE AS (
+    SELECT
+        SM.product_id AS Product_id,
+        SM.warehouse_id AS Wh_id,
+        SUM(SM.product_uom_qty) AS Put_away_in
+    FROM
+        stock_move SM
+    INNER JOIN
+        Stock_location Sl ON SL.id = SM.location_id
+    INNER JOIN
+        Stock_location SL1 ON SL1.id = SM.location_dest_id
+    WHERE
+        SL.name LIKE '%Input%'
+        AND SL1.name LIKE '%Stock%'
+        AND SM.state = 'assigned'
+    GROUP BY
+        SM.product_id, SM.warehouse_id
+),
+SQ1_CTE AS (
+    SELECT
+        SQ.product_id AS product_id,
+        sw.type AS channel,
+        SQ.warehouse_id AS wh_id,
+        (SUM(SQ.quantity) - SUM(SQ.reserved_quantity)) AS Available_Qty,
+        SUM(SQ.quantity) AS qty,
+        SUM(SQ.reserved_quantity) AS Reserved_qty
+    FROM
+        Stock_quant SQ
+    INNER JOIN
+        stock_location SL ON SL.id = SQ.location_id
+    INNER JOIN
+        stock_warehouse sw ON sw.id = SQ.warehouse_id
+    WHERE
+        SQ.quantity > 0
+        AND SL.parent_path LIKE CONCAT('%', SW.lot_stock_id, '%')
+    GROUP BY
+        SQ.warehouse_id, SQ.product_id, sw.type
+),
+InTransit_CTE AS (
+    SELECT
+        sw.id AS wh_id,
+        sm.product_id,
+        SUM(sm.product_uom_qty) AS in_transit
+    FROM
+        stock_move sm
+left join stock_location sl1 on sl1.id = sm.location_id 
+inner join stock_location sl on sl.id = sm.location_dest_id
+inner join stock_warehouse sw on sw.id = sl.warehouse_id
+inner join res_company rc on rc.id = sm.company_id 
+inner join product_product pp on pp.id = sm.product_id
+inner join product_template pt on pt.id = pp.product_tmpl_id
+left join stock_picking sp on sp.id = sm.picking_id
+left join res_partner rp on rp.id = sp.partner_id
+where (sl1.name ilike '%transit%' or sl1.name ilike '%vendor%')  and sm.state = 'assigned' and
+coalesce(rc.parent_id,rc.id) in ('1','2') 
+ and (rp.name ilike '%brk%' or rp.name ilike '%eppl%' or rp.name ilike '%Earth Paw%' or rp.name ilike '%Barkyard%' 
+or rp.name ilike '%HUFT%')  AND sm.date >= (CURRENT_DATE - INTERVAL '30' DAY)
+    GROUP by sw.id,sm.product_id
+),
+cm as (select cm.id,cm.sku,cm.product_name,cm.pet_type,cm.bucket,cm.print_type,cm.brand,cm.brand_p,cm.sku_type,cm.category,cm.sub_category,cm.size,cm.mrp,cm.breed_size,ordering_function,internal_codes,cm.collection,cm.channel_type
+from catalog_master cm 
+where cm.sku_type in  ('tradable','service') and category != 'Service Charges'
+),
+ abc as   (SELECT
+    --   concat(Sw.warehouse_name,Cm.sku) as "key",
+       sw.warehouse_type,
+      --   case when rc.name ilike '%Barkyard%' then 'Barkyard' 
+       --  when rc.name ilike '%Earth Paws%' then 'EPPL' end AS company_name,
+        -- Sw.city,
+        Sw.State,
+         sw.warehouse_name AS warehouse_name,
+        cm.sku ,
+        cm.product_name ,
+        cm.pet_type,
+        cm.category,
+        cm.sub_category,
+        cm.brand,
+        cm.brand_p,
+        cm.bucket,
+        cm.print_type,
+        cm.size,
+        cm.breed_size,
+       -- cm.sku_type AS Sku_type,
+        cm.mrp AS MRP,
+        cm.ordering_function,
+        cm.internal_codes,
+        cm.collection,cm.channel_type,
+sum(coalesce(SQ1_CTE.available_qty,0)) as Available_QTY,
+	--	sum(coalesce(SQ1_CTE.Reserved_qty,0)) as Reserved_qty,
+	--	Sum(coalesce(PO_CTE.Incoming_Qty,0)) as Incoming_qty ,    
+        SUM(COALESCE(InTransit_CTE.in_transit, 0)) AS in_transit,
+        SUM(COALESCE(Putaway_In_CTE.put_away_in, 0)) AS put_away_in
+       -- ( Sum(coalesce(SQ1_CTE.available_qty,0)) +  Sum(coalesce(PO_CTE.Incoming_Qty,0)) +  SUM(COALESCE(InTransit_CTE.in_transit, 0)) + 
+     --   SUM(COALESCE(Putaway_In_CTE.put_away_in, 0))) AS Total_qty
+FROM AKM_CTE AKM
+    INNER JOIN warehouse_master SW ON SW.warehouse_id = AKM.wh_id
+    inner join cm  on cm.id = AKM.product_id  
+    LEFT JOIN res_company rc ON RC.id = AKM.company
+    LEFT JOIN PO_CTE ON PO_CTE.product_id = AKM.product_id AND PO_CTE.wh_id = AKM.wh_id
+    LEFT JOIN SQ1_CTE ON SQ1_CTE.product_id = AKM.product_id AND SQ1_CTE.wh_id = AKM.wh_id
+    LEFT JOIN InTransit_CTE ON InTransit_CTE.product_id = AKM.product_id AND InTransit_CTE.wh_id = AKM.wh_id
+     LEFT JOIN Putaway_In_CTE ON Putaway_In_CTE.product_id = AKM.product_id AND Putaway_In_CTE.wh_id = AKM.wh_id
+    group by  rc.name,cm.sku ,
+        cm.product_name ,
+        cm.sku_type ,
+        cm.mrp,
+        cm.ordering_function,
+        cm.internal_codes,cm.category,
+        cm.sub_category,
+        cm.brand,
+        cm.bucket,
+        cm.brand_p,
+         cm.size,
+        cm.breed_size,
+        cm.print_type,
+        sw.warehouse_type,
+        Sw.warehouse_name,
+        Sw.city,
+        Sw.state,
+        cm.collection,cm.channel_type,cm.pet_type,sw.warehouse_type
+ having  (sum(coalesce(SQ1_CTE.available_qty,0)) +  Sum(coalesce(PO_CTE.Incoming_Qty,0)) +  SUM(COALESCE(InTransit_CTE.in_transit, 0))+SUM(COALESCE(Putaway_In_CTE.put_away_in, 0)))  > 0
+    )
+    select * from abc
+    ;
