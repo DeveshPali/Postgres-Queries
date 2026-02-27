@@ -1,0 +1,77 @@
+with so as(select so.name,air.id
+,airsor.automatic_indent_request_id 
+,airsor.sale_order_id 
+,air.universal_code 
+,airppr.product_product_id
+,air.original_demand_qty 
+,air.demand_qty 
+,sol.product_uom_qty 
+,sol.reserved_qty 
+,sol.qty_delivered 
+,sp.date_done as So_Dispatch_date
+,sp1.GRN_date as So_grn_date
+,pp.default_code,
+so.warehouse_id,sw1.name as so_source_warehouse
+from automatic_indent_request air 
+left join automatic_indent_request_sale_order_rel airsor on airsor.automatic_indent_request_id = air.id
+left join automatic_indent_request_product_product_rel airppr on airppr.automatic_indent_request_id = air.id 
+left join sale_order_line sol on sol.order_id = airsor.sale_order_id and sol.product_id = airppr.product_product_id 
+left join sale_order so on so.id = sol.order_id 
+left join (select sp.origin,sp.date_done,sl.name,sl1.name from  stock_picking sp
+                     left join stock_location sl on sl.id = sp.location_id
+                      left join stock_location sl1 on sl1.id = sp.location_dest_id
+                      where 
+                      sp.state = 'done' and sl.name ilike '%Stock%' and sl1.name ilike '%customer%') sp  on sp.origin = so."name" 
+left join (select sp.origin,MAx(sp.date_done + interval  '5:30 hour') GRN_date from  stock_picking sp
+                      left join stock_location sl on sl.id = sp.location_id
+                       left join stock_location sl1 on sl1.id = sp.location_dest_id
+                       where 
+                       sp.state = 'done' 
+                       and  sl.name ilike '%vendor%' and sl1.name ilike '%stock%' group by sp.origin) sp1  on sp1.origin = so.client_order_ref  
+left join product_product pp on pp.id=sol.product_id 
+left join stock_warehouse SW1 on so.warehouse_id = SW1.id
+)
+,ict as 
+(select icte.name,air.id
+,airicter.automatic_indent_request_id 
+,airicter.inter_company_transfer_ept_id 
+,air.universal_code ,pp.default_code 
+,airppr.product_product_id
+,air.original_demand_qty 
+,air.demand_qty 
+,ictle.quantity  
+,ictle.qty_delivered ,sw1.name as ict_source_warehouse
+,sp.date_done as ict_dispatch_date
+,sp1.date_done as ict_grn_date
+from automatic_indent_request air 
+left join automatic_indent_request_inter_company_transfer_ept_rel airicter  on airicter.automatic_indent_request_id = air.id
+left join automatic_indent_request_product_product_rel airppr on airppr.automatic_indent_request_id = air.id 
+left join inter_company_transfer_line_ept ictle  on ictle.inter_transfer_id = airicter.inter_company_transfer_ept_id  and ictle.product_id = airppr.product_product_id 
+left join inter_company_transfer_ept icte  on icte.id  = ictle.inter_transfer_id
+left join (select sp.origin,sp.date_done,sl.name,sl1.name from  stock_picking sp
+                     left join stock_location sl on sl.id = sp.location_id
+                      left join stock_location sl1 on sl1.id = sp.location_dest_id
+                      where 
+                      sp.state = 'done' and sl.name ilike '%Stock%' and sl1.name ilike '%Transit%') sp  on sp.origin = icte."name" 
+left join (select sp.origin,sp.date_done,sl.name,sl1.name from  stock_picking sp
+                     left join stock_location sl on sl.id = sp.location_id
+                      left join stock_location sl1 on sl1.id = sp.location_dest_id
+                      where 
+                      sp.state = 'done' and sl1.name ilike '%Stock%' and sl.name ilike '%Transit%') sp1  on sp1.origin = icte."name"                       
+left join product_product pp on pp.id=ictle.product_id 
+left join stock_warehouse SW1 on icte.source_warehouse_id= SW1.id
+where air.id = '496547'
+)
+select air.id,ict.name as ICT_name,so.name as SO_name,air.create_date ,air.to_warehouse_id ,sw.name as to_warehouse,so.so_source_warehouse,ict.ict_source_warehouse,
+air.universal_code ,
+so.default_code as so_defaultcode,
+ict.default_code as ict_default_code,
+air.original_demand_qty ,air.demand_qty ,so.reserved_qty as so_reserved_qty ,so.qty_delivered as so_qty_delivered 
+--,ict.quantity as ict_reserved_quantity  
+,ict.qty_delivered  as ict_qty_delivered 
+,(so.reserved_qty + ict.qty_delivered) as RESERVED
+from automatic_indent_request air 
+left join stock_warehouse sw on sw.id=air.to_warehouse_id
+left join ict on ict.id=air.id 
+left join so on air.id=so.id
+where air.id = '496547'
