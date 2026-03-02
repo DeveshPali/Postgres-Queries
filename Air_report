@@ -1,18 +1,20 @@
-with so as(select so.name,air.id
-,airsor.automatic_indent_request_id 
-,airsor.sale_order_id 
+with air as (
+select * from automatic_indent_request air
+),
+so as(select so.name
+,so.sale_status as so_status
+,air.id
+,sw1.name as so_source_warehouse
 ,air.universal_code 
-,airppr.product_product_id
+,string_agg(distinct pp.default_code,',') as so_default_code
 ,air.original_demand_qty 
 ,air.demand_qty 
-,sol.product_uom_qty 
-,sol.reserved_qty 
-,sol.qty_delivered 
+,Sum(sol.reserved_qty) as So_reserved 
+,Sum(sol.qty_delivered) as so_dispatch
+,Sum(pol.qty_received) as qty_received
 ,sp.date_done as So_Dispatch_date
 ,sp1.GRN_date as So_grn_date
-,pp.default_code,
-so.warehouse_id,sw1.name as so_source_warehouse
-from automatic_indent_request air 
+from air as air 
 left join automatic_indent_request_sale_order_rel airsor on airsor.automatic_indent_request_id = air.id
 left join automatic_indent_request_product_product_rel airppr on airppr.automatic_indent_request_id = air.id 
 left join sale_order_line sol on sol.order_id = airsor.sale_order_id and sol.product_id = airppr.product_product_id 
@@ -30,20 +32,26 @@ left join (select sp.origin,MAx(sp.date_done + interval  '5:30 hour') GRN_date f
                        and  sl.name ilike '%vendor%' and sl1.name ilike '%stock%' group by sp.origin) sp1  on sp1.origin = so.client_order_ref  
 left join product_product pp on pp.id=sol.product_id 
 left join stock_warehouse SW1 on so.warehouse_id = SW1.id
+left join purchase_order po on po.partner_ref =so."name" and po.name=so.client_order_ref
+left join purchase_order_line pol on pol.order_id =po.id and pol.product_id=airppr.product_product_id 
+-- where air.id = '540723'
+group by so.name,air.id,air.universal_code,air.original_demand_qty,air.demand_qty,sp.date_done,sp1.GRN_date,sw1.name,so.sale_status
 )
 ,ict as 
-(select icte.name,air.id
-,airicter.automatic_indent_request_id 
-,airicter.inter_company_transfer_ept_id 
-,air.universal_code ,pp.default_code 
-,airppr.product_product_id
+(select icte.name
+,icte.state as ict_status
+,air.id
+,sw1.name as ict_source_warehouse
+,air.universal_code 
+,string_agg(distinct pp.default_code,',') as ICT_default_code 
 ,air.original_demand_qty 
 ,air.demand_qty 
-,ictle.quantity  
-,ictle.qty_delivered ,sw1.name as ict_source_warehouse
+,Sum(ictle.quantity) as   ICT_reserved
+,case when sp.date_done IS NULL THEN 0 else Sum(ictle.quantity) end as   ICT_Dispatch
+,SUM(ictle.qty_delivered) as ICT_delivered
 ,sp.date_done as ict_dispatch_date
 ,sp1.date_done as ict_grn_date
-from automatic_indent_request air 
+from air as air 
 left join automatic_indent_request_inter_company_transfer_ept_rel airicter  on airicter.automatic_indent_request_id = air.id
 left join automatic_indent_request_product_product_rel airppr on airppr.automatic_indent_request_id = air.id 
 left join inter_company_transfer_line_ept ictle  on ictle.inter_transfer_id = airicter.inter_company_transfer_ept_id  and ictle.product_id = airppr.product_product_id 
@@ -60,18 +68,40 @@ left join (select sp.origin,sp.date_done,sl.name,sl1.name from  stock_picking sp
                       sp.state = 'done' and sl1.name ilike '%Stock%' and sl.name ilike '%Transit%') sp1  on sp1.origin = icte."name"                       
 left join product_product pp on pp.id=ictle.product_id 
 left join stock_warehouse SW1 on icte.source_warehouse_id= SW1.id
-where air.id = '496547'
+group by icte.name,air.id,air.universal_code,air.original_demand_qty,air.demand_qty,sw1.name,sp.date_done,sp1.date_done,icte.state
 )
-select air.id,ict.name as ICT_name,so.name as SO_name,air.create_date ,air.to_warehouse_id ,sw.name as to_warehouse,so.so_source_warehouse,ict.ict_source_warehouse,
-air.universal_code ,
-so.default_code as so_defaultcode,
-ict.default_code as ict_default_code,
-air.original_demand_qty ,air.demand_qty ,so.reserved_qty as so_reserved_qty ,so.qty_delivered as so_qty_delivered 
---,ict.quantity as ict_reserved_quantity  
-,ict.qty_delivered  as ict_qty_delivered 
-,(so.reserved_qty + ict.qty_delivered) as RESERVED
-from automatic_indent_request air 
+select air.id as indent_id
+,air.create_date::date as date
+,so.So_Dispatch_date
+,ict.ict_dispatch_date
+,so.So_grn_date
+,ict.ict_grn_date
+,air.indent_type
+,rcs.name as from_state
+,sw.name as to_warehouse
+,so.so_source_warehouse,ict.ict_source_warehouse
+,ict.name as ICT_name
+,ict.ict_status
+,so.name as SO_name
+,so.so_status
+,air.universal_code
+,so.so_default_code as so_defaultcode
+,ict.ict_default_code as ict_default_code
+,air.original_demand_qty
+,air.demand_qty
+,coalesce(so.So_reserved,0) as so_reserved_qty
+,coalesce(ict.ICT_reserved,0) ict_reserved_quantity
+,(coalesce(so.So_reserved,0) + coalesce(ict.ICT_reserved,0)) as Total_RESERVED
+,coalesce(so.so_dispatch,0) as so_dispatch 
+,coalesce(ict.ICT_Dispatch,0) as ICT_dispatch
+,coalesce(so.qty_received,0) as so_qty_received
+,coalesce(ict.ICT_delivered,0)  as ict_qty_received 
+,(coalesce(so.qty_received,0) +coalesce(ict.ICT_delivered,0)) as Total_received
+,air.remarks
+from air as air 
 left join stock_warehouse sw on sw.id=air.to_warehouse_id
+left join res_country_state rcs on rcs.id = air.from_state_id
 left join ict on ict.id=air.id 
 left join so on air.id=so.id
-where air.id = '496547'
+where air.create_date >= current_date - interval '20 days'
+limit 100
