@@ -1,0 +1,40 @@
+select sid.Transaction_date::date as "Date", 
+Sid.city as "Bill_From_City",
+sid.state as "Bill From State",
+Sid.ship_to_city as "Ship_To_City",
+Sid.ship_to_state as "Ship_To_State",
+sid.shipping_address_name as "Customer Name",
+Sid.customer_id as "Customer_Id",
+Sid.bill_to_contact as "Identification_Number",
+Sid.invoice_number as "Invoice Number",
+Sid.order_reference as "Order Number",
+Sid.item_status  as "Invoice Status",
+Sid.p_amount  as "Sales",
+Sid.base  as "Base Sales",
+sid.quantity as "Qty Sold",
+Sid.discount as "Discount",
+Sid.product_selling_price * Sid.quantity as "Mrp Sales",
+sid.product_selling_price  as "Product Mrp",
+Sid.sku_code as "Sku",
+Sid.product_name as "Product Name", 
+Sid.product_category as "Category",
+Sid.product_sub_category as "Sub Category",
+sid.brand_p as "Brand (P)",
+Sid.brand as "Brand",
+hsc.name  as sales_team,rpc."name" ->> 'en_US' as TAGS from sales_invoice_data sid 
+left join res_partner rp on rp.id = sid.customer_id 
+left join huft_sales_channel hsc on hsc.id = rp.huft_sales_channel_id 
+left join res_partner_res_partner_category_rel rprpcr on rprpcr.partner_id = rp.id 
+left join  res_partner_category rpc on rpc.id = rprpcr.category_id
+left join Res_company rc on rc.id = SID.company_id
+where   hsc.name  = 'Pan India B2B' and  (
+    -- If today is the 1st of the month → show last month's data
+    (EXTRACT(DAY FROM current_date) = 1 AND
+     sid.transaction_date >= date_trunc('month', current_date - interval '1 month') AND
+     sid.transaction_date < date_trunc('month', current_date))
+    -- If today is 2nd or later → show current MTD
+    OR
+    (EXTRACT(DAY FROM current_date) > 1 AND
+     sid.transaction_date >= date_trunc('month', current_date) AND
+     sid.transaction_date < current_date + interval '1 day')
+)  and sid.customer_type = 'Customer Sales' and coalesce(rc.parent_id,rc.id) in ('1')
