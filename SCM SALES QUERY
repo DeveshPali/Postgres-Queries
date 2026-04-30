@@ -1,0 +1,114 @@
+
+Select AKM.Date,Akm.Invoice_number,AKM.Order_number,AKM.Invoice_status,Akm.Customer_type,Akm.Parent_channel,AKM.warehouse_ID,AKM.warehouse_name,AKM.channel,AKM.Bill_from_city,
+Akm.Bill_from_state,Akm.bill_from_Pincode,AKM.Customer_name,AKM.identification_Number,AKM.bill_to_city,
+AKm.bill_to_state,Akm.bill_to_pincode,AKM.sales,AKM.quantity,AKM.MRP_sales,akm.discount,
+AKM.sku_code as sku_code ,AKM.combo_sku from 
+(Select SID.transaction_date::date as Date,SID.invoice_number as Invoice_Number,SID.order_reference as Order_Number,
+case when SID.item_status ilike '%Returned%' then 'Return'
+when SID.item_status ilike '%Completed%' then 'Complete' else SID.item_status end as Invoice_Status,
+SID.Customer_type,
+case 
+when HSC.parent_channel is not null then HSC.parent_channel
+When SID.shipping_address_name Ilike '%Happy Paws%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%P6 Ventures%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%M/s Pets N Vets%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Pets Delight%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Square Deal%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Pets Planet%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Fido Franchise Private Limited%' then 'Franchisee'
+When SID.shipping_address_name Ilike '%Dunzo%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Swiggy%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Myntra%' then 'Marketplace'
+When SID.shipping_address_name Ilike '%Nykaa%' then 'Marketplace'
+When SID.parent_channel ilike '%b2b%' then 'B2B'
+When SID.parent_channel ilike '%e_commerce%' then 'E-Commerce'
+When SID.parent_channel ilike '%retail%' then 'Retail'
+else SID.parent_channel End as Parent_channel,
+case 
+when HSC.channel is not null then HSC.channel	
+When SID.shipping_address_name Ilike '%Happy Paws%' then 'Happy Paws'/* Franchisee IDENTIFICATION */
+When SID.shipping_address_name Ilike '%P6 Ventures%' then 'P6 Ventures'
+When SID.shipping_address_name Ilike '%M/s Pets N Vets%' then 'Pets N Vets'
+When SID.shipping_address_name Ilike '%Pets Delight%' then 'Pets Delight'
+When SID.shipping_address_name Ilike '%Square Deal%' then 'Square Deal'
+When SID.shipping_address_name Ilike '%Pets Planet%' then 'Pets Planet'
+When SID.shipping_address_name Ilike '%Fido Franchise Private Limited%' then 'Fido'
+When SID.shipping_address_name Ilike '%Dunzo%' then 'Dunzo'
+When SID.shipping_address_name Ilike '%Swiggy%' then 'Swiggy'
+when SID.Product_category Ilike '%Spa Service%' then Trim(concat(replace(SID.channel,' Retail',''),' ','Spa')) /* SPA IDENTIFICATION */
+else SID.channel END as Channel,
+SID.warehouse_id,Sw.name as Warehouse_name,
+SID.city as Bill_From_City,SID.state as Bill_From_State,SID.pincode as Bill_From_Pincode,
+SID.shipping_address_name as Customer_Name,SID.customer_id::varchar as Identification_Number,
+case when SID.parent_channel = 'retail' then SID.city when SID.parent_channel = 'e_commerce' then SID.ship_to_city  else SID.bill_to_city end as Bill_To_City,
+case when SID.parent_channel = 'retail' then SID.state when SID.parent_channel = 'e_commerce' then SID.ship_to_state else SID.bill_to_state end as Bill_To_State ,
+case when SID.parent_channel = 'retail' then SID.pincode when SID.parent_channel = 'e_commerce' then SID.ship_to_pincode else SID.pin_code end as Bill_To_Pincode,
+CASE 
+  WHEN kv.parent = sid.sku_code AND kv.total_count > 1 THEN 
+    CASE 
+      WHEN sum(sid.quantity * kv.product_qty * kv.price) over (partition by sid.id) = 0 THEN
+        0
+      ELSE
+        ((sid.quantity * kv.product_qty * kv.price) / (sum(sid.quantity * kv.product_qty * kv.price) over (partition by sid.id))) * sid.p_amount
+    END
+  ELSE
+    sid.p_amount
+END
+ AS Sales,
+case when kv.parent = SID.sku_code then SID.quantity*KV.product_qty else SID.quantity end as quantity,
+CASE  
+    WHEN kv.parent = SID.sku_code THEN
+        (SID.quantity * KV.product_qty * KV.price) 
+    ELSE
+        (SID.quantity * SID.product_selling_price)
+END AS MRP_Sales,
+CASE  
+    WHEN kv.parent = SID.sku_code THEN
+        (SID.quantity * KV.product_qty * KV.price) 
+    ELSE
+        (SID.quantity * SID.product_selling_price)
+END -
+CASE 
+  WHEN kv.parent = sid.sku_code AND kv.total_count > 1 THEN 
+    CASE 
+      WHEN sum(sid.quantity * kv.product_qty * kv.price) over (partition by sid.id) = 0 THEN
+        0
+      ELSE
+        ((sid.quantity * kv.product_qty * kv.price) / (sum(sid.quantity * kv.product_qty * kv.price) over (partition by sid.id))) * sid.p_amount
+    END
+  ELSE
+    sid.p_amount
+END AS Discount,
+SID.product_selling_price as MRP,
+case when kv.parent = SID.sku_code then KV.child else SID.sku_code end as sku_code,
+KV.parent as combo_sku,
+SID.product_name as Sku_name,case when coalesce(SID.product_category,'') ='' then SID.product_sub_category else SID.product_category end as category,
+SID.product_sub_category as Sub_category,SID.Brand as brand,SID.Brand_p as brand_p,SID.team as team,SID.tax_type as Tax,SID.company as company 
+from sales_invoice_data as SID
+ Inner join Stock_warehouse SW on Sw.id = SID.warehouse_id
+ inner join res_company rc on rc.id = SID.company_id
+ left join (select rp.id,coalesce(rp2.huft_sales_channel_id,rp.huft_sales_channel_id) as huft_sales_channel_id  from res_partner rp
+left join res_partner rp2 on rp2.id = coalesce(rp.parent_id,rp.id)
+) rp on rp.id = sid.customer_id
+left join amazon_warehouse_mapping awm on awm.warehouse_id = sid.warehouse_id
+left join 
+(select hsc1.id,hsc.name as parent_channel,hsc1.name as channel from huft_sales_channel hsc
+inner join huft_sales_channel hsc1 on Coalesce(hsc1.parent_huft_sales_channel,hsc1.id) = hsc.id
+and hsc.active = True)
+ hsc on hsc.id = rp.huft_sales_channel_id
+ left join(SELECT 
+        parent,
+        child,
+        product_qty,
+        price,
+        SUM(price) OVER (PARTITION BY parent) AS total_price,
+        count(child) OVER (PARTITION BY parent) AS total_count
+    FROM 
+        kitvalues) KV on  KV.parent= SID.sku_code
+where coalesce(RC.parent_id,RC.id) in ('1','2')
+and
+SID.P_amount is not null
+and SID.parent_channel is not null
+and SID.transaction_date::date >= '2024-04-01' and SID.Customer_type = 'Customer Sales' 
+and sid.channel != 'Amazon' and SID.shipping_address_name not ilike '%Amazon%' and AWM.warehouse_id is null
+) AKM
